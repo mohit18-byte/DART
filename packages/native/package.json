@@ -1,0 +1,23 @@
+{
+  "name": "@dart/native",
+  "version": "0.0.1",
+  "private": true,
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint src/",
+    "test": "echo \"No tests yet\""
+  },
+  "dependencies": {
+    "@dart/shared": "workspace:*",
+    "@dart/agent": "workspace:*"
+  },
+  "devDependencies": {
+    "@dart/tsconfig": "workspace:*",
+    "typescript": "^5.7.0"
+  }
+}

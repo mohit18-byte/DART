@@ -9,7 +9,7 @@ import type { Plan, AgentAction } from '@dart/shared';
  * Model selection per plan:
  *   free  → Gemini 2.0 Flash (fast, free API)
  *   pro   → Claude Sonnet 4 (best quality/speed balance)
- *   power → Claude Sonnet 4 (same model, higher limits)
+ *   power → Claude Sonnet 4 (highest capability)
  */
 
 const google = createGoogleGenerativeAI({

@@ -41,6 +41,11 @@ export default defineBackground(() => {
         console.log('[Dart BG] Chrome CDP connected on port:', message.port);
       }
 
+      // Phase 5: Persist completed tasks to Supabase
+      if (message.type === 'task:status' && message.status && ['completed', 'failed', 'cancelled'].includes(message.status)) {
+        persistTask(message);
+      }
+
       // Broadcast to all extension contexts (side panel, popup)
       broadcastToExtension(message);
     });
@@ -111,21 +116,22 @@ export default defineBackground(() => {
           },
         });
 
-        // Forward to native binary with auth context
-        // Phase 3: placeholder auth. Phase 5: real Clerk JWT.
-        const sent = sendToNative({
-          type: 'task:start',
-          command: message.command,
-          userId: 'dev-user',     // Phase 5: Clerk userId
-          plan: 'free',           // Phase 5: from Clerk publicMetadata
-          authToken: undefined,   // Phase 5: Clerk session token
-        });
+        // Forward to native binary with Clerk auth context
+        chrome.storage.local.get(['clerkUserId', 'clerkPlan', 'clerkSessionToken']).then((authData) => {
+          const sent = sendToNative({
+            type: 'task:start',
+            command: message.command,
+            userId: authData.clerkUserId ?? 'dev-user',
+            plan: authData.clerkPlan ?? 'free',
+            authToken: authData.clerkSessionToken,
+          });
 
-        sendResponse({
-          success: sent,
-          message: sent
-            ? 'Task forwarded to native host'
-            : 'Failed to connect to native host. Is the Dart agent installed?',
+          sendResponse({
+            success: sent,
+            message: sent
+              ? 'Task forwarded to native host'
+              : 'Failed to connect to native host. Is the Dart agent installed?',
+          });
         });
         break;
       }
@@ -167,6 +173,53 @@ export default defineBackground(() => {
 
     return true;
   });
+
+  /**
+   * Phase 5: Persist completed tasks to /api/task/save
+   */
+  async function persistTask(message: Record<string, unknown>): Promise<void> {
+    try {
+      const syncHost = '__WXT_SYNC_HOST__'; // Build-time replaced
+      const apiUrl = (typeof syncHost === 'string' && syncHost.startsWith('http'))
+        ? syncHost
+        : 'http://localhost:3000';
+
+      // Get stored steps from session storage
+      const sessionData = await chrome.storage.session.get(['taskSteps']);
+      const steps = sessionData.taskSteps ?? [];
+
+      // Get Clerk session token for auth
+      const authData = await chrome.storage.local.get(['clerkSessionToken']);
+
+      const response = await fetch(`${apiUrl}/api/task/save`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(authData.clerkSessionToken ? { 'Authorization': `Bearer ${authData.clerkSessionToken}` } : {}),
+        },
+        body: JSON.stringify({
+          taskId: message.taskId ?? crypto.randomUUID(),
+          command: (await chrome.storage.session.get(['activeTask'])).activeTask?.command ?? 'unknown',
+          status: message.status,
+          stepCount: steps.length,
+          result: message.result ?? null,
+          modelUsed: null,
+          steps,
+        }),
+      });
+
+      if (!response.ok) {
+        console.warn('[Dart BG] Failed to persist task:', response.status);
+      } else {
+        console.log('[Dart BG] Task persisted successfully');
+      }
+
+      // Clear session steps
+      chrome.storage.session.remove(['taskSteps']);
+    } catch (err) {
+      console.error('[Dart BG] Error persisting task:', err);
+    }
+  }
 
   console.log('[Dart BG] Service worker initialized');
 });

@@ -1,11 +1,13 @@
 import React, { useState, useCallback, useRef, useEffect } from 'react';
+import { Send, Loader2 } from 'lucide-react';
 import { sendToBackground } from '../lib/messaging';
 import { useAgentStore } from '../stores/agent-store';
+import { cn } from '@/lib/utils';
 
 const EXAMPLE_COMMANDS = [
   'Go to twitter.com and post a tweet saying hello world',
   'Summarize the top posts on Reddit today',
-  'Search LinkedIn for software engineers in San Francisco',
+  'Search LinkedIn for software engineers in SF',
   'Add a meeting to my Google Calendar for tomorrow at 2pm',
   'Check my latest Amazon order status',
   'Reply to my last email from Sarah',
@@ -65,11 +67,17 @@ export function CommandInput() {
   );
 
   return (
-    <div className="command-input-container">
-      <div className="command-input-wrapper">
+    <div className="shrink-0 px-4 pt-4">
+      <div
+        className={cn(
+          'flex flex-col bg-surface border border-hairline rounded-xl p-3 transition-all duration-200',
+          'focus-within:border-primary focus-within:shadow-[0_0_0_3px_var(--color-primary-muted)]',
+          isRunning && 'opacity-60',
+        )}
+      >
         <textarea
           ref={textareaRef}
-          className="command-input"
+          className="w-full bg-transparent border-none outline-none text-ink font-(--font-sans) text-sm leading-relaxed resize-none min-h-[24px] max-h-[120px] placeholder:text-muted-soft placeholder:transition-opacity"
           value={command}
           onChange={(e) => setCommand(e.target.value)}
           onKeyDown={handleKeyDown}
@@ -78,43 +86,30 @@ export function CommandInput() {
           disabled={isRunning}
           autoFocus
         />
-        <div className="command-input-footer">
-          <span className="command-char-count">
+
+        <div className="flex items-center justify-between mt-2">
+          <span className="text-[11px] text-muted-soft tabular-nums">
             {command.length > 0 ? `${command.length}` : ''}
           </span>
+
           <button
-            className="btn-primary command-submit"
+            className={cn(
+              'w-8 h-8 rounded-full flex items-center justify-center transition-all duration-150',
+              command.trim() && !isSubmitting && !isRunning
+                ? 'bg-primary text-on-primary hover:bg-primary-hover active:scale-95'
+                : 'bg-surface-elevated text-muted-soft cursor-not-allowed',
+            )}
             onClick={handleSubmit}
             disabled={!command.trim() || isSubmitting || isRunning}
           >
             {isSubmitting ? (
-              <span className="spinner" />
+              <Loader2 className="w-4 h-4 animate-spin" />
             ) : (
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
-                <path
-                  d="M22 2L11 13"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                />
-                <path
-                  d="M22 2L15 22L11 13L2 9L22 2Z"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                />
-              </svg>
+              <Send className="w-3.5 h-3.5" />
             )}
           </button>
         </div>
       </div>
-      {isRunning && (
-        <p className="command-running-hint">
-          Task is running. Press Escape to cancel.
-        </p>
-      )}
     </div>
   );
 }

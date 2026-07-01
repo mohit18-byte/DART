@@ -1,10 +1,12 @@
 import React, { useCallback, useEffect } from 'react';
+import { Pause, Play, X } from 'lucide-react';
+import { Button } from './ui/button';
 import { sendToBackground } from '../lib/messaging';
 import { useAgentStore } from '../stores/agent-store';
 
 /**
- * ControlBar — Pause / Resume / Cancel buttons.
- * Visible only when a task is running or paused.
+ * ControlBar — Pause/Resume + Cancel controls.
+ * Keyboard shortcuts: Space = pause/resume, Escape = cancel.
  */
 export function ControlBar() {
   const { status, taskId } = useAgentStore();
@@ -27,53 +29,38 @@ export function ControlBar() {
     await sendToBackground({ type: 'task:cancel', taskId });
   }, [taskId]);
 
-  // Keyboard shortcuts
   useEffect(() => {
     if (!isActive) return;
-
     const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        e.preventDefault();
-        handleCancel();
-      }
+      if (e.key === 'Escape') { e.preventDefault(); handleCancel(); }
       if (e.key === ' ' && e.target === document.body) {
         e.preventDefault();
-        if (isRunning) handlePause();
-        else if (isPaused) handleResume();
+        isRunning ? handlePause() : handleResume();
       }
     };
-
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [isActive, isRunning, isPaused, handleCancel, handlePause, handleResume]);
+  }, [isActive, isRunning, handleCancel, handlePause, handleResume]);
 
   if (!isActive) return null;
 
   return (
-    <div className="control-bar">
+    <div className="flex items-center gap-2 px-4 py-2 shrink-0">
       {isRunning ? (
-        <button className="btn-control btn-pause" onClick={handlePause} title="Pause (Space)">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
-            <rect x="6" y="4" width="4" height="16" rx="1" />
-            <rect x="14" y="4" width="4" height="16" rx="1" />
-          </svg>
+        <Button variant="outline" size="sm" className="flex-1" onClick={handlePause}>
+          <Pause className="w-3.5 h-3.5" />
           <span>Pause</span>
-        </button>
+        </Button>
       ) : (
-        <button className="btn-control btn-resume" onClick={handleResume} title="Resume (Space)">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
-            <polygon points="5,3 19,12 5,21" />
-          </svg>
+        <Button variant="outline" size="sm" className="flex-1" onClick={handleResume}>
+          <Play className="w-3.5 h-3.5" />
           <span>Resume</span>
-        </button>
+        </Button>
       )}
-      <button className="btn-control btn-cancel" onClick={handleCancel} title="Cancel (Escape)">
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
-          <line x1="18" y1="6" x2="6" y2="18" />
-          <line x1="6" y1="6" x2="18" y2="18" />
-        </svg>
+      <Button variant="destructive" size="sm" className="flex-1" onClick={handleCancel}>
+        <X className="w-3.5 h-3.5" />
         <span>Cancel</span>
-      </button>
+      </Button>
     </div>
   );
 }

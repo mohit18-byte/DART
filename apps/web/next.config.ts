@@ -1,8 +1,10 @@
 import type { NextConfig } from 'next';
 
 const nextConfig: NextConfig = {
-  reactStrictMode: true,
   transpilePackages: ['@dart/shared'],
+  experimental: {
+    serverComponentsExternalPackages: ['postgres'],
+  },
 };
 
 export default nextConfig;

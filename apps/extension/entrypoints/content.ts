@@ -1,110 +1,149 @@
-// Content script — injects Shadow DOM overlay for element highlighting
-// Uses vanilla CSS only (no Tailwind) — Shadow DOM compatible
-
+/**
+ * Dart Content Script — Element Highlight Overlay
+ *
+ * Draws a glowing border around elements the agent is about to interact with.
+ * All styles live inside Shadow DOM to prevent CSS conflicts with the host page.
+ */
 export default defineContentScript({
   matches: ['<all_urls>'],
-  runAt: 'document_idle',
+  runAt: 'document_end',
 
   main() {
-    // ── Create Shadow DOM host ──
-    const host = document.createElement('dart-overlay');
-    host.style.cssText = 'position:fixed;top:0;left:0;width:0;height:0;z-index:2147483647;pointer-events:none;';
-    document.documentElement.appendChild(host);
+    let overlay: HTMLDivElement | null = null;
+    let label: HTMLDivElement | null = null;
+    let shadowHost: HTMLDivElement | null = null;
+    let shadowRoot: ShadowRoot | null = null;
 
-    const shadow = host.attachShadow({ mode: 'closed' });
+    function createShadowContainer(): ShadowRoot {
+      if (shadowRoot) return shadowRoot;
 
-    // ── Inject overlay styles ──
-    const style = document.createElement('style');
-    style.textContent = `
-      .dart-highlight {
-        position: fixed;
-        border: 2px solid rgba(204, 120, 92, 0.8);
-        border-radius: 4px;
-        box-shadow: 0 0 0 3px rgba(204, 120, 92, 0.25), 0 0 20px rgba(204, 120, 92, 0.15);
-        pointer-events: none;
-        transition: all 150ms ease;
-        animation: dart-pulse 1.5s ease-in-out infinite;
-        z-index: 2147483647;
+      shadowHost = document.createElement('div');
+      shadowHost.id = 'dart-overlay-host';
+      shadowHost.style.cssText = 'all:initial; position:absolute; top:0; left:0; z-index:2147483647; pointer-events:none;';
+      document.body.appendChild(shadowHost);
+      shadowRoot = shadowHost.attachShadow({ mode: 'closed' });
+
+      // Inject styles into shadow DOM
+      const style = document.createElement('style');
+      style.textContent = `
+        .dart-overlay {
+          position: absolute;
+          border: 2px solid rgba(204, 120, 92, 0.7);
+          border-radius: 6px;
+          background: rgba(204, 120, 92, 0.06);
+          box-shadow: 0 0 0 3px rgba(204, 120, 92, 0.25), 0 0 20px rgba(204, 120, 92, 0.15);
+          pointer-events: none;
+          transition: all 200ms ease;
+          animation: dart-pulse 2s ease-in-out infinite;
+        }
+        .dart-label {
+          position: absolute;
+          font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+          font-size: 11px;
+          font-weight: 600;
+          color: #ffffff;
+          background: rgba(204, 120, 92, 0.9);
+          padding: 3px 8px;
+          border-radius: 4px;
+          white-space: nowrap;
+          pointer-events: none;
+          transform: translateY(-100%) translateY(-6px);
+          box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+        }
+        @keyframes dart-pulse {
+          0%, 100% {
+            box-shadow: 0 0 0 3px rgba(204, 120, 92, 0.25), 0 0 20px rgba(204, 120, 92, 0.15);
+          }
+          50% {
+            box-shadow: 0 0 0 5px rgba(204, 120, 92, 0.35), 0 0 30px rgba(204, 120, 92, 0.25);
+          }
+        }
+      `;
+      shadowRoot.appendChild(style);
+
+      return shadowRoot;
+    }
+
+    function highlightElement(selector: string, actionLabel?: string): void {
+      removeHighlight();
+
+      // Try to find the element by various strategies
+      let element: Element | null = null;
+
+      // 1. Try CSS selector
+      try {
+        element = document.querySelector(selector);
+      } catch { /* not a valid CSS selector */ }
+
+      // 2. Try text content matching
+      if (!element) {
+        const allElements = document.querySelectorAll('button, a, input, textarea, [role="button"], [role="link"]');
+        for (const el of allElements) {
+          if (el.textContent?.toLowerCase().includes(selector.toLowerCase())) {
+            element = el;
+            break;
+          }
+        }
       }
 
-      .dart-highlight-label {
-        position: fixed;
-        background: rgba(20, 20, 19, 0.9);
-        color: #faf9f5;
-        font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-        font-size: 12px;
-        font-weight: 500;
-        padding: 4px 8px;
-        border-radius: 4px;
-        pointer-events: none;
-        white-space: nowrap;
-        z-index: 2147483647;
-        animation: dart-fade-in 200ms ease;
+      if (!element) return;
+
+      const root = createShadowContainer();
+      const rect = element.getBoundingClientRect();
+      const scrollX = window.scrollX;
+      const scrollY = window.scrollY;
+
+      // Create overlay
+      overlay = document.createElement('div');
+      overlay.className = 'dart-overlay';
+      overlay.style.cssText = `
+        left: ${rect.left + scrollX - 4}px;
+        top: ${rect.top + scrollY - 4}px;
+        width: ${rect.width + 8}px;
+        height: ${rect.height + 8}px;
+      `;
+      root.appendChild(overlay);
+
+      // Create label
+      if (actionLabel) {
+        label = document.createElement('div');
+        label.className = 'dart-label';
+        label.textContent = actionLabel;
+        label.style.cssText = `
+          left: ${rect.left + scrollX - 4}px;
+          top: ${rect.top + scrollY - 4}px;
+        `;
+        root.appendChild(label);
       }
+    }
 
-      @keyframes dart-pulse {
-        0%, 100% { box-shadow: 0 0 0 3px rgba(204, 120, 92, 0.25), 0 0 20px rgba(204, 120, 92, 0.15); }
-        50% { box-shadow: 0 0 0 4px rgba(204, 120, 92, 0.4), 0 0 30px rgba(204, 120, 92, 0.25); }
+    function removeHighlight(): void {
+      if (overlay && shadowRoot) {
+        shadowRoot.removeChild(overlay);
+        overlay = null;
       }
-
-      @keyframes dart-fade-in {
-        from { opacity: 0; transform: translateY(4px); }
-        to { opacity: 1; transform: translateY(0); }
+      if (label && shadowRoot) {
+        shadowRoot.removeChild(label);
+        label = null;
       }
-    `;
-    shadow.appendChild(style);
+    }
 
-    // ── Highlight container ──
-    const container = document.createElement('div');
-    shadow.appendChild(container);
-
-    // ── Message listener ──
+    // Listen for messages from the service worker
     chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
-      if (message.type === 'highlight:element') {
-        highlightElement(message.rect, message.label);
+      if (message?.type === 'highlight:element') {
+        highlightElement(message.selector, message.label);
         sendResponse({ success: true });
-      } else if (message.type === 'highlight:clear') {
-        clearHighlight();
+
+        // Auto-remove after 3 seconds
+        setTimeout(removeHighlight, 3000);
+      }
+
+      if (message?.type === 'highlight:clear') {
+        removeHighlight();
         sendResponse({ success: true });
       }
+
       return true;
     });
-
-    let highlightEl: HTMLDivElement | null = null;
-    let labelEl: HTMLDivElement | null = null;
-
-    function highlightElement(rect: { x: number; y: number; width: number; height: number }, label?: string) {
-      clearHighlight();
-
-      highlightEl = document.createElement('div');
-      highlightEl.className = 'dart-highlight';
-      highlightEl.style.left = `${rect.x}px`;
-      highlightEl.style.top = `${rect.y}px`;
-      highlightEl.style.width = `${rect.width}px`;
-      highlightEl.style.height = `${rect.height}px`;
-      container.appendChild(highlightEl);
-
-      if (label) {
-        labelEl = document.createElement('div');
-        labelEl.className = 'dart-highlight-label';
-        labelEl.textContent = label;
-        labelEl.style.left = `${rect.x}px`;
-        labelEl.style.top = `${Math.max(0, rect.y - 28)}px`;
-        container.appendChild(labelEl);
-      }
-    }
-
-    function clearHighlight() {
-      if (highlightEl) {
-        highlightEl.remove();
-        highlightEl = null;
-      }
-      if (labelEl) {
-        labelEl.remove();
-        labelEl = null;
-      }
-    }
-
-    console.log('[Dart] Content script overlay initialized');
   },
 });

@@ -1,6 +1,9 @@
 import React from 'react';
+import { useAgentStore } from '../stores/agent-store';
 
 export function Header() {
+  const { isConnected, connectionError } = useAgentStore();
+
   return (
     <header className="header">
       <div className="header-left">
@@ -23,8 +26,18 @@ export function Header() {
         <span className="header-title">Dart</span>
       </div>
       <div className="header-right">
-        <div className="connection-indicator" title="Native binary not connected">
-          <span className="connection-dot disconnected" />
+        <div
+          className="connection-indicator"
+          title={
+            isConnected
+              ? 'Connected to native agent'
+              : connectionError ?? 'Native agent not connected'
+          }
+        >
+          <span className={`connection-dot ${isConnected ? 'connected' : 'disconnected'}`} />
+          <span className="connection-label">
+            {isConnected ? 'Connected' : 'Offline'}
+          </span>
         </div>
       </div>
     </header>

@@ -1,6 +1,6 @@
 {
   "name": "@dart/native",
-  "version": "0.0.1",
+  "version": "0.1.0",
   "private": true,
   "main": "./src/index.ts",
   "types": "./src/index.ts",
@@ -8,16 +8,22 @@
     ".": "./src/index.ts"
   },
   "scripts": {
+    "dev": "bun run src/index.ts",
+    "build": "bun build --compile src/index.ts --outfile dist/dart-agent",
     "typecheck": "tsc --noEmit",
     "lint": "eslint src/",
     "test": "echo \"No tests yet\""
   },
   "dependencies": {
     "@dart/shared": "workspace:*",
-    "@dart/agent": "workspace:*"
+    "@dart/agent": "workspace:*",
+    "@browserbasehq/stagehand": "^3.6.0",
+    "pino": "^9.0.0",
+    "zod": "^3.24.0"
   },
   "devDependencies": {
     "@dart/tsconfig": "workspace:*",
+    "@types/node": "^22.0.0",
     "typescript": "^5.7.0"
   }
 }

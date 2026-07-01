@@ -1,8 +1,20 @@
-// @dart/native — Native messaging host
-// Full implementation in Phase 2
+/**
+ * Dart Native Agent — Entry Point
+ *
+ * This file is the compiled binary entry.
+ * Run: bun build --compile src/index.ts --outfile dist/dart-agent
+ */
 
-export const NATIVE_HOST_NAME = 'app.dart.agent';
-export const NATIVE_VERSION = '0.1.0';
+import { startHost } from './host';
+import logger from './logger';
 
-// Placeholder — host.ts, chrome-launcher.ts, messaging.ts, cdp.ts
-// will be implemented when we build the native binary
+async function main(): Promise<void> {
+  try {
+    await startHost();
+  } catch (err) {
+    logger.fatal({ err }, 'Fatal error in native host');
+    process.exit(1);
+  }
+}
+
+main();

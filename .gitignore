@@ -37,3 +37,6 @@ dart-agent-*
 
 # Chrome extension unpacked
 .output/
+
+# WXT generated
+.wxt/

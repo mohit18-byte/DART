@@ -1,6 +1,6 @@
 {
   "name": "@dart/agent",
-  "version": "0.0.1",
+  "version": "0.1.0",
   "private": true,
   "main": "./src/index.ts",
   "types": "./src/index.ts",
@@ -14,10 +14,12 @@
   },
   "dependencies": {
     "@dart/shared": "workspace:*",
+    "@browserbasehq/stagehand": "^3.6.0",
     "zod": "^3.24.0"
   },
   "devDependencies": {
     "@dart/tsconfig": "workspace:*",
+    "@types/node": "^22.0.0",
     "typescript": "^5.7.0"
   }
 }

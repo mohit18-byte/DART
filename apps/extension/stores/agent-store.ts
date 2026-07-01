@@ -1,8 +1,9 @@
 import { create } from 'zustand';
 import type { StepEvent, TaskStatus } from '@dart/shared';
 
-// ── Chrome Storage Adapter ──
-// Zustand persist middleware with chrome.storage.session backend
+// ── Agent Store ──
+// Manages command state, step log, task status, and connection status.
+// Persisted to chrome.storage.session (cleared on browser restart — intentional).
 
 interface AgentState {
   // State
@@ -10,11 +11,15 @@ interface AgentState {
   taskId: string | null;
   steps: StepEvent[];
   status: TaskStatus;
+  isConnected: boolean;
+  connectionError: string | null;
 
   // Actions
   setCommand: (command: string) => void;
   setTaskId: (taskId: string) => void;
   setStatus: (status: TaskStatus) => void;
+  setConnected: (connected: boolean) => void;
+  setConnectionError: (error: string | null) => void;
   addStep: (step: StepEvent) => void;
   updateStep: (id: string, update: Partial<StepEvent>) => void;
   clearSteps: () => void;
@@ -26,6 +31,8 @@ const initialState = {
   taskId: null as string | null,
   steps: [] as StepEvent[],
   status: 'pending' as TaskStatus,
+  isConnected: false,
+  connectionError: null as string | null,
 };
 
 export const useAgentStore = create<AgentState>()((set) => ({
@@ -33,10 +40,7 @@ export const useAgentStore = create<AgentState>()((set) => ({
 
   setCommand: (command) => {
     set({ command });
-    // Persist to chrome.storage.session
-    chrome.storage.session.set({ agentCommand: command }).catch(() => {
-      // storage may not be available in all contexts
-    });
+    chrome.storage.session.set({ agentCommand: command }).catch(() => {});
   },
 
   setTaskId: (taskId) => {
@@ -48,8 +52,25 @@ export const useAgentStore = create<AgentState>()((set) => ({
     chrome.storage.session.set({ agentStatus: status }).catch(() => {});
   },
 
+  setConnected: (connected) => {
+    set({ isConnected: connected, connectionError: connected ? null : undefined });
+  },
+
+  setConnectionError: (error) => {
+    set({ connectionError: error });
+  },
+
   addStep: (step) => {
-    set((state) => ({ steps: [...state.steps, step] }));
+    set((state) => {
+      // If a step with the same ID exists, update it instead of adding a duplicate
+      const existingIndex = state.steps.findIndex((s) => s.id === step.id);
+      if (existingIndex >= 0) {
+        const updatedSteps = [...state.steps];
+        updatedSteps[existingIndex] = step;
+        return { steps: updatedSteps };
+      }
+      return { steps: [...state.steps, step] };
+    });
   },
 
   updateStep: (id, update) => {
@@ -63,10 +84,54 @@ export const useAgentStore = create<AgentState>()((set) => ({
   },
 
   reset: () => {
-    set(initialState);
+    set({ ...initialState });
     chrome.storage.session.remove(['agentCommand', 'agentStatus']).catch(() => {});
   },
 }));
+
+// ── Listen for messages from background service worker ──
+
+chrome.runtime.onMessage.addListener((message) => {
+  const store = useAgentStore.getState();
+
+  if (!message || typeof message !== 'object' || !('type' in message)) return;
+
+  switch (message.type) {
+    case 'step:update':
+      store.addStep(message.step);
+      break;
+
+    case 'step:blocked':
+      store.addStep(message.step);
+      store.setStatus('paused');
+      break;
+
+    case 'step:ask_user':
+      store.addStep(message.step);
+      store.setStatus('paused');
+      break;
+
+    case 'status:ready':
+      store.setConnected(true);
+      break;
+
+    case 'status:connected':
+      store.setConnected(true);
+      break;
+
+    case 'status:error':
+      store.setConnectionError(message.error);
+      if (message.code === 'NATIVE_DISCONNECTED') {
+        store.setConnected(false);
+      }
+      break;
+
+    case 'task:status':
+      store.setStatus(message.status);
+      if (message.taskId) store.setTaskId(message.taskId);
+      break;
+  }
+});
 
 // ── Restore state from chrome.storage.session on init ──
 chrome.storage.session
@@ -76,6 +141,4 @@ chrome.storage.session
     if (data.agentCommand) store.setCommand(data.agentCommand);
     if (data.agentStatus) store.setStatus(data.agentStatus);
   })
-  .catch(() => {
-    // storage not available — running outside extension context
-  });
+  .catch(() => {});

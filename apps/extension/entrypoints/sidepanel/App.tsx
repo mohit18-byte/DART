@@ -1,11 +1,12 @@
 import React from 'react';
 import { CommandInput } from '../../components/CommandInput';
 import { StepLog } from '../../components/StepLog';
+import { ControlBar } from '../../components/ControlBar';
 import { Header } from '../../components/Header';
 import { useAgentStore } from '../../stores/agent-store';
 
 export function App() {
-  const { status, steps } = useAgentStore();
+  const { status, steps, connectionError } = useAgentStore();
   const isActive = status === 'running' || status === 'paused';
 
   return (
@@ -13,8 +14,23 @@ export function App() {
       <Header />
       <main className="app-main">
         <CommandInput />
+
+        {/* Connection error banner */}
+        {connectionError && !isActive && (
+          <div className="error-banner">
+            <span className="error-banner-icon">⚠️</span>
+            <span className="error-banner-text">{connectionError}</span>
+          </div>
+        )}
+
+        {/* Control bar — visible during active task */}
+        <ControlBar />
+
+        {/* Step log — visible when there are steps */}
         {(isActive || steps.length > 0) && <StepLog />}
-        {!isActive && steps.length === 0 && (
+
+        {/* Empty state */}
+        {!isActive && steps.length === 0 && !connectionError && (
           <div className="empty-state">
             <div className="empty-state-icon">
               <svg width="48" height="48" viewBox="0 0 48 48" fill="none">

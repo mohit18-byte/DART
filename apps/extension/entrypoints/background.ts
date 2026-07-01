@@ -111,10 +111,14 @@ export default defineBackground(() => {
           },
         });
 
-        // Forward to native binary
+        // Forward to native binary with auth context
+        // Phase 3: placeholder auth. Phase 5: real Clerk JWT.
         const sent = sendToNative({
           type: 'task:start',
           command: message.command,
+          userId: 'dev-user',     // Phase 5: Clerk userId
+          plan: 'free',           // Phase 5: from Clerk publicMetadata
+          authToken: undefined,   // Phase 5: Clerk session token
         });
 
         sendResponse({

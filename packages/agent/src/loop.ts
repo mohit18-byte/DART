@@ -1,8 +1,9 @@
 import type { Stagehand } from '@browserbasehq/stagehand';
 import type { AgentAction, StepEvent, TaskStatus } from '@dart/shared';
 import { observePage } from './observer';
-import { planNextAction } from './planner';
+import { planNextAction, type PlannerResult } from './planner';
 import { executeAction } from './actions';
+import { detectBlocker } from './blocker-detector';
 import { actionDelay } from './pacing';
 
 // ── Constants ──
@@ -16,12 +17,21 @@ export interface AgentLoopCallbacks {
   onAskUser: (step: StepEvent, question: string) => void;
 }
 
+export interface PlannerConfig {
+  apiBaseUrl: string;
+  userId: string;
+  plan: 'free' | 'pro' | 'power';
+  authToken?: string;
+}
+
 export interface AgentLoopParams {
   command: string;
   taskId: string;
   stagehand: Stagehand;
   signal: AbortSignal;
   callbacks: AgentLoopCallbacks;
+  /** Planner config — if omitted, uses fallback (Phase 2 compat) */
+  plannerConfig?: PlannerConfig;
 }
 
 export interface AgentLoopResult {
@@ -69,47 +79,75 @@ function getActionDescription(action: AgentAction): string {
 }
 
 /**
- * Main agent loop.
+ * Main agent loop — observe → detect blockers → plan → act → emit → delay → repeat
  *
- * Flow: observe() → plan() → act() → emit step → humanDelay() → repeat
- *
- * Termination conditions:
- * - Action type is 'done' → success
- * - Action type is 'blocked' → paused, waiting for user
- * - Action type is 'ask_user' → paused, waiting for user response
- * - Step count >= MAX_STEPS → forced stop
- * - AbortSignal is triggered → cancelled
- * - Unrecoverable error → failed
+ * Phase 3 enhancements over Phase 2:
+ * - Real AI planning via /api/agent/run
+ * - Blocker detection (CAPTCHA, 2FA, rate limit, login)
+ * - Rate limit awareness from API headers
+ * - Page text extraction for AI context
  */
 export async function runAgentLoop(params: AgentLoopParams): Promise<AgentLoopResult> {
-  const { command, taskId, stagehand, signal, callbacks } = params;
+  const { command, taskId, stagehand, signal, callbacks, plannerConfig } = params;
   const actionHistory: AgentAction[] = [];
   let stepCount = 0;
 
   // Emit a "thinking" step at the start
-  const thinkingStep = createStep(taskId, { type: 'done', result: `Processing: "${command}"` }, 'running');
-  thinkingStep.type = 'thinking';
-  thinkingStep.description = `Processing: "${command}"`;
+  const thinkingStep: StepEvent = {
+    id: crypto.randomUUID(),
+    taskId,
+    type: 'thinking',
+    description: `Processing: "${command}"`,
+    status: 'running',
+    timestamp: Date.now(),
+  };
   callbacks.onStep(thinkingStep);
 
   while (stepCount < MAX_STEPS) {
-    // Check cancellation
+    // ── Check cancellation ──
     if (signal.aborted) {
       return { status: 'cancelled', summary: 'Task was cancelled by user', stepCount };
     }
 
-    // 1. Observe the page
+    // ── 1. Observe the page ──
     const observation = await observePage(stagehand);
 
-    // 2. Plan the next action (stubbed in Phase 2)
-    const action = await planNextAction({
-      command,
-      observation,
-      actionHistory,
-      stepCount,
-    });
+    // ── 2. Detect blockers ──
+    const blocker = await detectBlocker(observation, stagehand);
+    if (blocker.blocked && blocker.reason) {
+      const blockedStep: StepEvent = {
+        id: crypto.randomUUID(),
+        taskId,
+        type: 'blocked',
+        description: blocker.description,
+        status: 'failed',
+        timestamp: Date.now(),
+      };
+      callbacks.onBlocked(blockedStep, blocker.description);
+      return { status: 'paused', summary: `Blocked: ${blocker.description}`, stepCount };
+    }
 
-    // 3. Emit the step as "running"
+    // ── 3. Plan the next action (AI or fallback) ──
+    let planResult: PlannerResult;
+    try {
+      planResult = await planNextAction(
+        { command, observation, actionHistory, stepCount },
+        plannerConfig,
+      );
+    } catch (planError) {
+      const errorMsg = planError instanceof Error ? planError.message : String(planError);
+      return { status: 'failed', summary: `Planning failed: ${errorMsg}`, stepCount };
+    }
+
+    const { action } = planResult;
+
+    // Mark the thinking step as done
+    if (stepCount === 0) {
+      thinkingStep.status = 'success';
+      callbacks.onStep({ ...thinkingStep });
+    }
+
+    // ── 4. Emit the step as "running" ──
     const step = createStep(taskId, action, 'running');
     callbacks.onStep(step);
 
@@ -118,7 +156,7 @@ export async function runAgentLoop(params: AgentLoopParams): Promise<AgentLoopRe
       return { status: 'cancelled', summary: 'Task was cancelled by user', stepCount };
     }
 
-    // 4. Handle special action types before execution
+    // ── 5. Handle special action types ──
     if (action.type === 'blocked') {
       step.status = 'failed';
       callbacks.onBlocked(step, action.description);
@@ -131,12 +169,12 @@ export async function runAgentLoop(params: AgentLoopParams): Promise<AgentLoopRe
       return { status: 'paused', summary: `Waiting for user: ${action.question}`, stepCount };
     }
 
-    // 5. Execute the action
+    // ── 6. Execute the action ──
     const startTime = Date.now();
     const result = await executeAction(action, stagehand);
     const duration = Date.now() - startTime;
 
-    // 6. Update step with result
+    // ── 7. Update step with result ──
     step.duration = duration;
     if (result.success) {
       step.status = 'success';
@@ -145,37 +183,25 @@ export async function runAgentLoop(params: AgentLoopParams): Promise<AgentLoopRe
       step.status = 'failed';
       step.detail = result.error;
     }
-
-    // Emit updated step
     callbacks.onStep({ ...step });
 
-    // 7. Record action in history
+    // ── 8. Record action in history ──
     actionHistory.push(action);
     stepCount++;
 
-    // 8. Check if we're done
+    // ── 9. Check termination ──
     if (action.type === 'done') {
-      return {
-        status: 'completed',
-        summary: action.result,
-        stepCount,
-      };
+      return { status: 'completed', summary: action.result, stepCount };
     }
 
-    // 9. If action failed, stop
     if (!result.success) {
-      return {
-        status: 'failed',
-        summary: result.error ?? 'Action execution failed',
-        stepCount,
-      };
+      return { status: 'failed', summary: result.error ?? 'Action execution failed', stepCount };
     }
 
-    // 10. Human-like delay before next iteration
+    // ── 10. Human-like delay ──
     await actionDelay();
   }
 
-  // Max steps reached
   return {
     status: 'completed',
     summary: `Reached maximum step limit (${MAX_STEPS})`,
